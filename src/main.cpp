@@ -14,7 +14,8 @@ typedef struct __attribute__((packed)) {
 } dados_tarefa_t;
 
 typedef struct __attribute__((packed)){
-    uint8_t esp;
+    uint8_t tipo_pacote;
+    uint8_t esp_mac_address[6];
     bool concluida;
 } dados_resposta_t;
 
@@ -30,6 +31,8 @@ uint8_t transmissor_mac[] = {0xB8, 0x1F, 0x3F, 0xDA, 0x2A, 0xB8};
 
 int contador = 0;
 int led_piscante = 14;
+int timeout_conexao = 0;
+float tempoAnterior = 0;
 
 void OnDataSent(uint8_t *mac_addr , uint8_t sendStatus) {
     if (sendStatus == 0) {
@@ -65,6 +68,9 @@ void setup() {
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
   esp_now_add_peer(transmissor_mac, ESP_NOW_ROLE_COMBO, 0, NULL, 0);
+  dados_resposta_t resposta = {.tipo_pacote  = 1, .concluida = true};
+  wifi_get_macaddr(0, resposta.esp_mac_address);
+  esp_now_send(transmissor_mac, (uint8_t*)&resposta, sizeof(resposta));
 
   pinMode(LED_BRANCO, OUTPUT);
   pinMode(LED_VERDE, OUTPUT);
@@ -74,9 +80,11 @@ void setup() {
 void loop() {
   switch(st_tarefas){
             case TAREFA_RECEBIDA:
+            timeout_conexao = 0;
                 if (contador > resposta.n_piscadas){
                     st_tarefas = TAREFA_CONCLUIDA;
-                    dados_resposta_t resposta = {.esp = 3, .concluida = true};
+                    dados_resposta_t resposta = {.tipo_pacote  = 2, .concluida = true};
+                    wifi_get_macaddr(0, resposta.esp_mac_address);
                     esp_now_send(transmissor_mac, (uint8_t*)&resposta, sizeof(resposta));
                     contador = 0;
                     break;
@@ -98,7 +106,15 @@ void loop() {
                     break;
                 }
             case TAREFA_CONCLUIDA:
-              //Serial.println("CONCLUIDO");
+              if (millis() - tempoAnterior > 1000){
+                tempoAnterior = millis();
+                timeout_conexao++;
+                if (timeout_conexao >= 30){
+                    dados_resposta_t resposta = {.tipo_pacote  = 1, .concluida = true};
+                    wifi_get_macaddr(0, resposta.esp_mac_address);
+                    esp_now_send(transmissor_mac, (uint8_t*)&resposta, sizeof(resposta));
+                }
+              }
               break;
         }
   yield();
